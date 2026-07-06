@@ -421,6 +421,16 @@ body.light .col-d>.kcol-hdr .kcol-title,body.light .col-d>.lgroup-hdr .kcol-titl
 </head>
 <body>
 <noscript><div style="position:fixed;top:0;left:0;right:0;background:#b3261e;color:#fff;padding:10px 14px;font:700 13px -apple-system,sans-serif;z-index:999;">Gawain needs JavaScript — please enable it in Safari settings.</div></noscript>
+<script>
+/* ═══════════ SHARED ONLINE BOARD — paste your Supabase keys here ═══════════
+   Leave empty to run in single-device mode (data stays in this browser).
+   Follow SETUP-GUIDE.md (5 minutes), then fill these two values in:        */
+window.CLOUD_CONFIG = window.CLOUD_CONFIG || {
+  url: "",        // e.g. "https://abcd1234.supabase.co"
+  anonKey: ""     // the long "anon public" key
+};
+/* ═══════════════════════════════════════════════════════════════════════ */
+</script>
 <div id="errBar" style="display:none;position:fixed;top:0;left:0;right:0;background:#b3261e;color:#fff;padding:9px 14px;font:700 11px -apple-system,sans-serif;z-index:999;word-break:break-word;"></div>
 <script>
 (function(){
@@ -606,6 +616,7 @@ function trySave(){
   snapshotBackup();
   fileAutosave();
   flashSaved();
+  cloudSync();
 }
 
 /* ===== AUTOSAVE BACKUPS ===== */
@@ -891,7 +902,6 @@ function clearDone(){if(!confirm('Remove all Done tasks? (Backup first if unsure
 function setSel(f,v){filters[f]=v;renderBoard();}
 function setFilter(f,v){filters[f]=v;$('fl-'+f).value=v;renderBoard();}
 function clearFilter(f){filters[f]='';$('fl-'+f).value='';renderBoard();}
-function initials(n){return n.split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();}
 
 /* avatar colors — people sharing the same initials always get different colors */
 const AVA=[['#ff9350','#f4703a'],['#b388ff','#7c4dff'],['#6bc5ff','#1e88e5'],['#7ed957','#43a047'],['#ffd166','#f0a500'],['#ff7b9c','#e91e63']];
@@ -1036,6 +1046,85 @@ function setColSort(st,v){
   if(v)colSort[st]=v;else delete colSort[st];
   localStorage.setItem(KEY+'-colsort',JSON.stringify(colSort));
   renderBoard();
+}
+
+/* ═══════════ SHARED ONLINE BOARD — open sync, no login ═══════════ */
+const CLOUD=window.CLOUD_CONFIG||{url:'',anonKey:''};
+const cloudOn=!!(CLOUD.url&&CLOUD.anonKey);
+let sb=null,cloudReady=false,lastSync=new Map(),syncTimer=null;
+
+function cloudBoot(){
+  if(!cloudOn)return;
+  if(window.supabase){cloudInit();return;}
+  const sc=document.createElement('script');
+  sc.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+  sc.onload=cloudInit;
+  sc.onerror=()=>cloudToast('⚠ Offline — changes saved on this device, will not reach the shared board');
+  document.head.appendChild(sc);
+}
+async function cloudInit(){
+  try{
+    sb=window.supabase.createClient(CLOUD.url,CLOUD.anonKey);
+    const {data,error}=await sb.from('tasks').select('id,data');
+    if(error)throw error;
+    const remote=(data||[]).map(r=>r.data).filter(t=>t&&t.id);
+    if(!remote.length&&tasks.length){
+      /* first device online: seed the shared board with this browser's tasks */
+      await sb.from('tasks').upsert(tasks.map(t=>({id:t.id,data:t})));
+      cloudToast('☁ Uploaded your existing tasks to the shared board');
+    }else{
+      /* merge: shared board wins, but local-only tasks are pushed up, not lost */
+      const rIds=new Set(remote.map(t=>t.id));
+      const localOnly=tasks.filter(t=>!rIds.has(t.id));
+      tasks=[...localOnly,...remote];
+      if(localOnly.length)await sb.from('tasks').upsert(localOnly.map(t=>({id:t.id,data:t})));
+      save();
+    }
+    lastSync=new Map(tasks.map(t=>[t.id,JSON.stringify(t)]));
+    cloudReady=true;
+    subscribeRealtime();
+    renderAll();
+    cloudToast('☁ Connected — this board is shared online');
+  }catch(e){cloudToast('⚠ Shared board unavailable: '+((e&&e.message)||e));}
+}
+function cloudSync(){
+  if(!cloudReady)return;
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(async()=>{
+    try{
+      const cur=new Map(tasks.map(t=>[t.id,JSON.stringify(t)]));
+      const ups=[];cur.forEach((v,id)=>{if(lastSync.get(id)!==v)ups.push({id,data:JSON.parse(v)});});
+      const dels=[];lastSync.forEach((_,id)=>{if(!cur.has(id))dels.push(id);});
+      if(ups.length){const {error}=await sb.from('tasks').upsert(ups);if(error)throw error;}
+      if(dels.length){const {error}=await sb.from('tasks').delete().in('id',dels);if(error)throw error;}
+      lastSync=cur;
+      if(ups.length||dels.length)cloudToast('☁ Saved to the shared board');
+    }catch(e){cloudToast('⚠ Online save failed — kept on this device, will retry on next change');}
+  },700);
+}
+function subscribeRealtime(){
+  sb.channel('tasks-live').on('postgres_changes',{event:'*',schema:'public',table:'tasks'},payload=>{
+    try{
+      if(payload.eventType==='DELETE'){
+        const id=payload.old&&payload.old.id;
+        if(id&&lastSync.has(id)){tasks=tasks.filter(t=>t.id!==id);lastSync.delete(id);save();renderAll();}
+      }else{
+        const row=payload.new;if(!row||!row.data)return;
+        const j=JSON.stringify(row.data);
+        if(lastSync.get(row.id)===j)return; /* our own write */
+        const i=tasks.findIndex(t=>t.id===row.id);
+        if(i>=0)tasks[i]=row.data;else tasks.unshift(row.data);
+        lastSync.set(row.id,j);save();renderAll();
+        cloudToast('🔄 Board updated by a teammate');
+      }
+    }catch(e){}
+  }).subscribe();
+}
+let cloudToastT=null;
+function cloudToast(m){
+  const el=$('saveToast');if(!el)return;
+  el.textContent=m;el.classList.add('show');
+  clearTimeout(cloudToastT);cloudToastT=setTimeout(()=>el.classList.remove('show'),2400);
 }
 
 /* ===== TEAM MEMBERS & INVITES ===== */
@@ -1681,7 +1770,7 @@ if(day.date!==todayStr){
   autoFill(false);
 }
 
-try{applyTheme();}catch(e){console.error(e);}try{bellState();notifyDue();}catch(e){console.error(e);}try{snapshotBackup();}catch(e){console.error(e);}
+try{applyTheme();}catch(e){console.error(e);}try{cloudBoot();}catch(e){console.error(e);}try{bellState();notifyDue();}catch(e){console.error(e);}try{snapshotBackup();}catch(e){console.error(e);}
 </script>
 </body>
 </html>
