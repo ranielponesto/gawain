@@ -1664,7 +1664,10 @@ function toggleProjStar(e,p){
   if(projMeta[p]){projMeta[p].star=!projMeta[p].star;localStorage.setItem(KEY+'-projmeta',JSON.stringify(projMeta));renderProjects();}
 }
 function renderProjects(){
-  const names=syncProjects().slice().sort((a,b)=>((projMeta[b]&&projMeta[b].star)?1:0)-((projMeta[a]&&projMeta[a].star)?1:0));
+  /* order: ⭐ starred → ⚠️ overdue (highlighted) → everything else */
+  const isOver=p=>tasks.some(t=>t.project===p&&t.status!=='d'&&t.deadline&&daysLeft(t.deadline)<0);
+  const rank=p=>((projMeta[p]&&projMeta[p].star)?0:(isOver(p)?1:2));
+  const names=syncProjects().slice().sort((a,b)=>rank(a)-rank(b));
   $('projCnt').textContent=names.length?'('+names.length+')':'';
   $('projList').innerHTML=names.length?names.map(p=>{
     const pts=tasks.filter(t=>t.project===p);
