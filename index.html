@@ -93,6 +93,13 @@ body.premium .tcard,body.premium .lrow,body.premium .proj-item,body.premium .cmt
   background:rgba(255,255,255,.06);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
   border:1px solid rgba(255,255,255,.12);box-shadow:0 8px 20px rgba(5,8,25,.3);}
 body.premium .tcard:hover,body.premium .lrow:hover{border-color:rgba(255,255,255,.28);}
+body.premium .proj-item.overdue{
+  background:linear-gradient(135deg,rgba(206,45,70,.58),rgba(130,20,45,.58));
+  border-color:rgba(255,125,140,.6);
+  box-shadow:0 8px 24px rgba(206,45,70,.4),inset 0 1px 0 rgba(255,255,255,.18);}
+body.premium .proj-item.overdue:hover{filter:brightness(1.15);}
+body.premium .proj-item.overdue .pi-name,body.premium .proj-item.overdue .pi-cnt{color:#fff;}
+body.premium .proj-item.overdue .pi-meta{color:rgba(255,220,225,.85);}
 body.premium .sbtn,body.premium .ab,body.premium .kadd{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);box-shadow:0 4px 12px rgba(5,8,25,.35),inset 0 1px 0 rgba(255,255,255,.18);}
 body.premium .btn-new,body.premium .btn-add,body.premium .btn-post{background:linear-gradient(135deg,#4a9af5,#1e78e8);box-shadow:0 8px 22px rgba(30,120,232,.45),inset 0 1.5px 0 rgba(255,255,255,.35);border-radius:14px;}
 body.premium .search input,body.premium select,body.premium input,body.premium .desc-edit{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);color:var(--text);}
